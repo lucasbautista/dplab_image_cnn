@@ -46,39 +46,41 @@ def rotate_around_center(image,angle):
     M = cv2.getRotationMatrix2D((cX, cY), angle, 1.0)
     return cv2.warpAffine(image, M, (w, h))
 
+
+def get_grid_rot_square_size(output_size = 250,phi = 45):
+    #calculo el tamaño de grilla a tomar en funcion de la rotacion para tener 
+    theta = phi
+    o = output_size #de momento el algortimo solo funciona en imagenes cuadradas    
+    if(theta==0 or theta==90 or theta==180 or theta == 270 or theta ==360):
+        n = o
+    else:
+    #calculo el tamaño de grilla en funcion de dicha rotacion empleada
+    #la unica solucion que me sirve es la de los primeros 45 grados
+    #luego se repite, mapeo a la entrada con mi solucion efectiva
+        if(phi>45):
+            theta = -phi + 90
+        if(phi>90):
+            theta = -phi + 135
+        if(phi>=135):
+            theta = -phi + 180
+        if(phi>180):
+            theta = -phi + 225
+        if(phi>=225):
+            theta = -phi + 270
+        if(phi>270):
+            theta = -phi + 315
+        if(phi>=315):
+            theta = -phi + 360
+    #calculo el angulo que representa la cantidad de pixeles a extraer en funcion de dicha rotacion
+        angle_rad = (theta*np.pi)/180
+        n = np.floor(abs(-(o*2*np.cos(angle_rad)*np.sin(angle_rad))/(1 - (np.cos(angle_rad) + np.sin(angle_rad))))).astype(int)
+    return n
+
 def grid_crop(im,out_size = (250,250),dy=0,dx=0,angle = 45):
     "la funcion toma el primer elemento de la matriz y desplaza en las direcciones x,y a su vez rota" 
     (h,w) = im.shape[0:2]
     R = (dy,dx) # valor random donde cae la imagen
-    #calculo el tamaño de grilla a tomar en funcion de la rotacion para tener 
-    temp_angle = angle
-    o = out_size[0] #de momento el algortimo solo funciona en imagenes cuadradas
-    #la unica solucion que me sirve es la de los primeros 45 grados
-    #luego se repite, mapeo a la entrada con mi solucion efectiva
-    if(angle>45):
-        temp_angle = -angle + 90
-    if(angle>90):
-        temp_angle = -angle + 135
-    if(angle>=135):
-        temp_angle = -angle + 180
-    if(angle>180):
-        temp_angle = -angle + 225
-    if(angle>=225):
-        temp_angle = -angle + 270
-    if(angle>270):
-        temp_angle = -angle + 315
-    if(angle>=315):
-        temp_angle = -angle + 360
-    #calculo el angulo que representa la cantidad de pixeles a extraer en funcion de dicha rotacion
-    angle_rad = (temp_angle*np.pi)/180
-    
-    if(temp_angle==0 or temp_angle==90 or temp_angle==180 or temp_angle == 270 or temp_angle ==360):
-        n = o
-    else:
-        #calculo el tamaño de grilla en funcion de dicha rotacion empleada
-        n = np.floor(abs(-(o*2*np.cos(angle_rad)*np.sin(angle_rad))/(1 - (np.cos(angle_rad) + np.sin(angle_rad))))).astype(int)
-    
-    
+    n = get_grid_rot_square_size(output_size=out_size[0],phi=angle)
     #defino el nuevo tamaño de grilla para obtener la imagen de 0x0
     grid_size = (n,n) #tienen que quedar en funcion del angulo
     disp_x = grid_size[1]//2 #cuanto desplazo en X
@@ -103,7 +105,7 @@ def grid_crop(im,out_size = (250,250),dy=0,dx=0,angle = 45):
     #esto es para la traslacion, para la rotacion usamos
     
     im_t = im[yi:yf,xi:xf,:] #los rangos truncan y no permiten acceder a posiciones de memorias invalidas
-    output = crop_around_center(rotate_around_center(im_t,angle),o,o)
+    output = crop_around_center(rotate_around_center(im_t,angle),out_size[0],out_size[1])
     
     if(output.shape[0] != out_size[0] or output.shape[1] != out_size[1]):
         sys.exit("Algo fallo:\n tamaño imagen salida (%s,%s)\n los valores de dx y dy recibidos son (%s,%s)\n se roto %sº" 
