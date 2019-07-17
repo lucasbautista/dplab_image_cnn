@@ -125,7 +125,6 @@ def augmented_data(im,out_size = (250,250),k = 1):
     dy = 0
     for i in range(0,k):
         angle = int(np.random.uniform(0,360)) #despues cuantizar
-        angle = i
         angles[i] = angle
         dx = int(np.random.uniform(0,w))
         dy = int(np.random.uniform(0,h))
@@ -142,7 +141,7 @@ pat_desp_image2 = cv2.imread("hrect.jpg")
 pat_desp = pat_desp_image1
 
 (h,w) = pat_desp.shape[0:2]
-tensor,angles,origins = augmented_data(pat_desp,out_size=(279,279),k=360)
+tensor,angles,origins = augmented_data(pat_desp,out_size=(279,279),k=2000)
 
 
 plt.figure(figsize=(10,10))

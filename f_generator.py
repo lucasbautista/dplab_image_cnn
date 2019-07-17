@@ -1992,6 +1992,10 @@ class DirectoryIterator(Iterator):
                     format=self.save_format)
                 img.save(os.path.join(self.save_to_dir, fname))
         # build batch of labels
+        
+        ##reescribirlo para que levante el excel de la base de datos con sus etiquetas
+        ##cada elemento va a tener un vector de etiquetas.
+        
         if self.class_mode == 'input':
             batch_y = batch_x.copy()
         elif self.class_mode == 'sparse':

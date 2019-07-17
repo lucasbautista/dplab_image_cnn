@@ -20,197 +20,223 @@ import cv2
 import f_fimg as fim
 import f_generator as fg
 import os
+import sys
+import matplotlib.pyplot as plt
 
 DATASET_PATH  = 'data'
 IMAGE_SIZE    = (500, 500)
 CROP_LENGTH   = 125
 NUM_CLASSES   = 2
-BATCH_SIZE    = 1  # try reducing batch size or freeze more layers if your GPU runs out of memory
+BATCH_SIZE    = 3  # try reducing batch size or freeze more layers if your GPU runs out of memory
 FREEZE_LAYERS = 2  # freeze the first this many layers for training
 NUM_EPOCHS    = 20
 WEIGHTS_FINAL = 'model-cropped-final.h5'
 OUTPUT_SIZE = 500
 
+def crop_around_center(image, width, height):
+    """
+    Given a NumPy / OpenCV 2 image, crops it to the given width and height,
+    around it's centre point
+    """
 
-    
+    image_size = (image.shape[1], image.shape[0])
+    image_center = (int(image_size[0] // 2), int(image_size[1] // 2))
 
-def op_imgs(im,tot_op):
-    
-    (h,w) = im.shape[:2]
-    tensor_output_size = (2*tot_op)+1
-    tot_rot = tot_op
-    Tensor_output = []
-    Tensor_output.append(im) #salvo la original
-    
-    for i in range(1,tot_rot + 1):
-        Tensor_output.append(fim.rotate_no_pad(im,angle = np.random.randint(0,360)))
-    for j in range(tot_rot + 1,tensor_output_size):
-        x_dis = np.random.randint(-w//2,w//2)
-        y_dis = np.random.randint(-h//2,h//2)
-        temp = fim.square_images(fim.translation_no_pad(im,tx=x_dis,ty=y_dis,orig_size=False),output_size=h)
-        for k in range(0,temp.shape[0]):
-            Tensor_output.append(temp[k])
-    
-    return np.stack(Tensor_output)
-    #para mañana hay que agregar el codigo de traslacion a las imagenes, pensar cuanto desplazar o al menos dejarlo generico
+    if(width > image_size[0]):
+        width = image_size[0]
+
+    if(height > image_size[1]):
+        height = image_size[1]
+
+    x1 = int(image_center[0] - (width //2))
+    x2 = int(x1 + width)
+    y1 = int(image_center[1] - (height // 2))
+    y2 = int(y1 + height)
+
+    return image[y1:y2, x1:x2,:]
+
+def rotate_around_center(image,angle):
+    # grab the dimensions of the image and then determine the
+    # center
+    (h, w) = image.shape[:2]
+    (cX, cY) = (w // 2, h // 2)
+ 
+    # grab the rotation matrix (applying the negative of the
+    # angle to rotate clockwise), then grab the sine and cosine
+    # (i.e., the rotation components of the matrix)
+    M = cv2.getRotationMatrix2D((cX, cY), angle, 1.0)
+    return cv2.warpAffine(image, M, (w, h))
 
 
-def augmented_generator(batches, rows,cols,augmented_factor):
+def get_grid_rot_square_size(output_size = 250,phi = 45):
+    #calculo el tamaño de grilla a tomar en funcion de la rotacion para tener 
+    theta = phi
+    o = output_size #de momento el algortimo solo funciona en imagenes cuadradas    
+    if(theta==0 or theta==90 or theta==180 or theta == 270 or theta ==360):
+        n = o
+    else:
+    #calculo el tamaño de grilla en funcion de dicha rotacion empleada
+    #la unica solucion que me sirve es la de los primeros 45 grados
+    #luego se repite, mapeo a la entrada con mi solucion efectiva
+        if(phi>45):
+            theta = -phi + 90
+        if(phi>90):
+            theta = -phi + 135
+        if(phi>=135):
+            theta = -phi + 180
+        if(phi>180):
+            theta = -phi + 225
+        if(phi>=225):
+            theta = -phi + 270
+        if(phi>270):
+            theta = -phi + 315
+        if(phi>=315):
+            theta = -phi + 360
+    #calculo el angulo que representa la cantidad de pixeles a extraer en funcion de dicha rotacion
+        angle_rad = (theta*np.pi)/180
+        n = np.floor(abs(-(o*2*np.cos(angle_rad)*np.sin(angle_rad))/(1 - (np.cos(angle_rad) + np.sin(angle_rad))))).astype(int)
+    return n
+
+def grid_crop(im,out_size = (250,250),dy=0,dx=0,angle = 45):
+    "la funcion toma el primer elemento de la matriz y desplaza en las direcciones x,y a su vez rota" 
+    (h,w) = im.shape[0:2]
+    R = (dy,dx) # valor random donde cae la imagen
+    n = get_grid_rot_square_size(output_size=out_size[0],phi=angle)
+    #defino el nuevo tamaño de grilla para obtener la imagen de 0x0
+    grid_size = (n,n) #tienen que quedar en funcion del angulo
+    disp_x = grid_size[1]//2 #cuanto desplazo en X
+    disp_y = grid_size[0]//2 #cuanto me desplazo en Y
+    
+    if(R[1] + grid_size[1] >= w): #caigo en una zona fuera de la imagen en x
+        xi = w - grid_size[1]
+        xf = w 
+    else: #es un punto donde no hay ningun conflicto
+        disp_x = R[1] + grid_size[1]
+        xi = R[1]
+        xf = disp_x
+        
+    if(R[0] + grid_size[0] >= h): #caigo en una zona fuera de la imagen en x
+        yi = h - grid_size[0]
+        yf = h
+    else: #es un punto donde no hay ningun conflicto
+        disp_y = R[0] + grid_size[0]
+        yi = R[0]
+        yf = disp_y
+    
+    #esto es para la traslacion, para la rotacion usamos
+    
+    im_t = im[yi:yf,xi:xf,:] #los rangos truncan y no permiten acceder a posiciones de memorias invalidas
+    output = crop_around_center(rotate_around_center(im_t,angle),out_size[0],out_size[1])
+    
+    if(output.shape[0] != out_size[0] or output.shape[1] != out_size[1]):
+        plt.figure()
+        plt.imshow(im[:,:,::-1])
+        sys.exit("Algo fallo:\n tamaño imagen salida (%s,%s)\n los valores de dx y dy recibidos son (%s,%s)\n se roto %sº\n el n fue de %s\n" 
+                 %(output.shape[0],output.shape[1],R[1],R[0],angle,n))
+    else:
+        return output
+        
+
+def augmented_data(im,out_size = (250,250),k = 1):
+    
+    tensor_output = np.ones((k,out_size[0],out_size[1],3)).astype(np.uint8)
+    angles = np.ones(k).astype(np.uint)
+    origins = np.ones((2,k)).astype(np.uint)
+    (h,w) = im.shape[0:2]
+    angle = 0
+    dx = 0
+    dy = 0
+    
+    for i in range(0,k):
+        angle = int(np.random.uniform(0,360)) #despues cuantizar
+        angles[i] = angle
+        dx = int(np.random.uniform(0,w))
+        dy = int(np.random.uniform(0,h))
+        origins[0][i] = dy
+        origins[1][i] = dx
+        tensor_output[i] = grid_crop(im,out_size=out_size,dy=dy,dx=dx,angle=angle)
+    else:
+        return tensor_output,angles,origins
+
+
+
+
+
+def augmented_generator(batches,augmented_factor,out_size=(250,250)):
     """toma como entrada un iterador de keras de image data generator y aumenta el data set.
-    particiona cada imagen generando que por cada imagen se genere rows*col imagenes, luego a cada particion
-    se le aplican tecnicas de aumentacion, estandar, rotacion,ineccion de ruido,traslacion,etc.
+    particiona cada imagen generando que por cada imagen se genere aaugmented_factor imagenes, donde cada particion
+    es el resultado de realizar un desplazamiento y una rotacion aleatoria a lo largo de la imagen horizontal.
     
     augmented factor, habla de cuantas imagenes quiero sacar a partir de una, la particion es independiente, augmented factor,
-    tiene que ver con la cantidad de rotaciones aleatorias a realizar
+    tiene que ver con la cantidad de rotaciones y desplazamientos uniformes a realizar
     
-    el resultado final es un batch de tamaño tot_batch = batch_size*((tot_imgs*augmented_factor) +augmented_factor)
+    el resultado final es un batch de tamaño tot_batch = batch_size*augmented_factor para las muestrasç
+    para las etiquetas es un batch de mismo tamaño con un vector de etiquetas en cada elemento
     """
     while True:
-        print("Ajustando imagenes al tamaño especificado")
         batch_x, batch_y = batches.my_next()
         batch_y = 'lateralizado'
-        output = []
         batch_size = len(batch_x)
+        tot_data = batch_size*augmented_factor
+        output = (np.ones((tot_data,out_size[0],out_size[1],3))*0).astype(np.uint8)
+        batch_y = (np.ones((tot_data,out_size[0],out_size[1],3))*0).astype(np.uint8)
+        i_output = 0
+        n_critic = get_grid_rot_square_size(output_size=out_size[0],phi=45)
         for i_batch in range(0,batch_size):
-            print("procesando________________________________ batch %s/%s"%(i_batch+1,batch_size))
-            #esferizo las imagenes  obtengo un tensor de imagenes de resultado
-            tensor_sq= fim.square_images(fim.chf_to_chl(batch_x[i_batch]),output_size=OUTPUT_SIZE)
+            #En funcion de h o w si estos son mas chicos que n_critic resampleo la imagen
+            #el n critico ocurre para un tamaño de 250x250
+            (h,w) = (n_critic,n_critic)
             
-            #llevar el tensor esferizado a una dimension de trabajo, con esa dimension se trabaja
-            #implementar la funcion de optimal_resize_square_image la misma debe recibir una imagen
-            # y decidir que metodo de resize utiliza en funcion de las dimensiones de la misma, luego
-            #debe devolver dicha imagen
+            #esferizo la imagen y aumnento la cantidad de muestras de mi dataset a partir de una muestra
+            tensor_sq,angles,origins= augmented_data(fim.chf_to_chl(batch_x[i_batch]),
+                                      out_size=out_size,
+                                      k = augmented_factor)
             
-            
-            #trabajo sobre el nuevo tensor,seteo sus parametros
-            tensor_size = tensor_sq.shape[0]
-            tensor_width = tensor_sq.shape[2]
-            tensor_heigth = tensor_sq.shape[1]
-            #estoy perdiendo la imagen original,el problema de la imagen original es que tiene distinto tamaño la tengo que reajustar
-            tot_imgs = rows*cols
-            tot_op = augmented_factor + 1 #cantidad de rotaciones y la original
+            for i_tensor_sq in range(0,tensor_sq.shape[0]):
+                if i_output<output.shape[0]:
+                    output[i_output] = tensor_sq[i_tensor_sq]
+                    i_output = i_output + 1
         
-            if(1 == tot_imgs):
-                tot_tensor = tensor_size*tot_imgs*tot_op
-            else:
-                tot_tensor = tensor_size*((tot_imgs*tot_op) +tot_op)
-            
-            M = tensor_heigth//rows
-            N = tensor_width//cols
-            iter_n=0
-            #triple for entre total_batch,x e y posicion de grid crop
-            for n_tensor in range(0,tensor_size):
-                o_img = tensor_sq[n_tensor]
-                o_imgs = op_imgs(o_img,tot_op=augmented_factor)
-                for i_op in range(0,o_imgs.shape[0]):
-                    #aca hay que ver si tienen el tamaño de salida ver si es mas grande o mas chico y asi resize
-                    #implementar una funcion que evalue dicha condicion y decida cual metodo usar mas optimo
-                    #tensor_new[iter_n] = fim.chl_to_chf(cv2.resize(o_imgs[i_op],(500,500)))
-                    output.append(fim.chl_to_chf(fim.optimal_resize_square_images(o_imgs[i_op],output_size=OUTPUT_SIZE)))
-                    iter_n+=1
-                
-                if(1!=tot_imgs): # quiere decir que se decide no hacer particion
-                    for y in range(0,tensor_heigth,M): #se lee, desde y hasta batch_heigth a pasos de M
-                        for x in range(0, tensor_width, N):
-                            tiles = tensor_sq[n_tensor,y:y+M,x:x+N,:] #salvo la seccion de imagen canales,filas,columnas
-                            if  M==tiles.shape[0] and N==tiles.shape[1]:
-                                crop_imgs = op_imgs(tiles,tot_op=augmented_factor)
-                                for i_op in range(0,crop_imgs.shape[0]):
-                                    #tensor_new[iter_n] = fim.chl_to_chf(cv2.resize(crop_imgs[i_op],IMAGE_SIZE))
-                                    output.append(fim.chl_to_chf(fim.optimal_resize_square_images(crop_imgs[i_op],output_size=OUTPUT_SIZE)))
-                                    iter_n+=1
-            #output.append(tensor_new)
-        batch_new = np.stack(output)
-        print("se ajusto exitosamente")
-        yield (batch_new, batch_y) #devuelve el resultado de la iteracion
+        yield (output,batch_y) #devuelve el resultado de la iteracion
 
 
 train_datagen = fg.ImageDataGenerator(data_format='channels_first')
 i = 0
-#esto despues va a el generador
-#train_batches = train_datagen.flow_from_directory(DATASET_PATH + '/train',
-#                                                  target_size=(None,None),
-#                                                  interpolation='bicubic',
-#                                                  classes=['20um'], #que busque en el directorio de 20 um
-#                                                  class_mode= 'categorical',
-#                                                  shuffle=False,
-#                                                  batch_size=BATCH_SIZE,
-#                                                  save_to_dir= DATASET_PATH + '/temp_orig')
-algo = 0
 train_batches = train_datagen.flow_from_directory(DATASET_PATH + '/train',
                                                   target_size=(None,None),
-                                                  interpolation='bicubic',
-                                                  classes=['20um'], #que busque en el directorio de 20 um
+                                                  classes=['50um','20um'], #que busque en el directorio de 20 um
                                                   class_mode= 'categorical',
                                                   shuffle=False,
                                                   batch_size=BATCH_SIZE,
                                                   save_to_dir= DATASET_PATH + '/temp_orig')
-
-
-valid_batches = train_datagen.flow_from_directory(DATASET_PATH + '/train',
-                                                  target_size=(None,None),
-                                                  interpolation='bicubic',
-                                                  classes=['20um'], #que busque en el directorio de 20 um
-                                                  class_mode= 'categorical',
-                                                  shuffle=False,
-                                                  batch_size=BATCH_SIZE,
-                                                  save_to_dir= DATASET_PATH + '/temp_orig')
-
-
-#    print("algo")
-#    algo +=1
-#    if algo >5:
-#        break
 
 
 total_files = np.size(train_batches.filenames)
 #seccion de debug
-
-#First check 1 batch of uncropped images
-#next y my_nex llaman al proximo elemento de batches, cuando llega al final saca el remanente, si se vuelve
-#a llamar vuelve a empezar
-
-rows = 2 
-cols = 2
-train_augmented = augmented_generator(train_batches, rows = rows,cols = cols,augmented_factor=5)
-
-for i in range(0,total_files,BATCH_SIZE):
-    batch_x, batch_y = next(train_augmented)
-    batch_size_augmented =  len(batch_x)
-    for j in range(0,batch_size_augmented):
-        cv2.imwrite(os.path.join(DATASET_PATH + '/temp_orig' , '%s_%s_augmented.jpg'%(i,j)), fim.chf_to_chl(batch_x[j])[:,:,::-1])
-        cv2.waitKey(0)
+k=0
+train_augmented = augmented_generator(train_batches,augmented_factor=10)
+i_file = 0
+for i in range(0,total_files):
+    print("Augmentando:________________________________ archivo %s/%s"%(i+1,total_files))
+    if k*BATCH_SIZE == i:
+        k = k + 1
+        batch_x, batch_y = next(train_augmented)
+        batch_size_augmented =  len(batch_x)
+        for j in range(0,batch_size_augmented):
+            cv2.imwrite(os.path.join(DATASET_PATH + '/temp_orig' , '%s_%s_augmented.jpg'%(i,j)),batch_x[j][:,:,::-1])
+            cv2.waitKey(0)
     #del batch_x, batch_y
+print("fin augmentacion\n")
 
-## build our classifier model based on pre-trained ResNet50:
-## 1. we don't include the top (fully connected) layers of ResNet50
-## 2. we add a DropOut layer followed by a Dense (fully connected)
-##    layer which generates softmax class score for each class
-## 3. we compile the final model using an Adam optimizer, with a
-##    low learning rate (since we are 'fine-tuning')
-#net = ResNet50(include_top=False, weights='imagenet', input_tensor=None,
-#               input_shape=(CROP_LENGTH,CROP_LENGTH,3))
-#x = net.output
-#x = Flatten()(x)
-#x = Dropout(0.5)(x)
-#output_layer = Dense(NUM_CLASSES, activation='softmax', name='softmax')(x)
-#net_final = Model(inputs=net.input, outputs=output_layer)
-#for layer in net_final.layers[:FREEZE_LAYERS]:
-#    layer.trainable = False
-#for layer in net_final.layers[FREEZE_LAYERS:]:
-#    layer.trainable = True
-#net_final.compile(optimizer=Adam(lr=1e-5),
-#                  loss='categorical_crossentropy', metrics=['accuracy'])
-#print(net_final.summary())
-#
-## train the model
-#net_final.fit_generator(train_augmented,
-#                        steps_per_epoch = train_batches.samples // BATCH_SIZE,
-#                        validation_data = valid_crops,
-#                        validation_steps = valid_batches.samples // BATCH_SIZE,
-#                        epochs = NUM_EPOCHS)
-#
-## save trained weights
-#net_final.save(WEIGHTS_FINAL)
+
+
+
+
+
+
+
+
+
+
 
 
