@@ -16,6 +16,7 @@ from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.layers import Flatten, Dense, Dropout
 from tensorflow.python.keras.applications.resnet50 import ResNet50, preprocess_input
 from tensorflow.python.keras.optimizers import Adam
+from keras.preprocessing.image import ImageDataGenerator
 import cv2
 import f_fimg as fim
 import f_generator as fg
@@ -181,11 +182,9 @@ def augmented_generator(batches,augmented_factor,out_size=(250,250)):
         output = (np.ones((tot_data,out_size[0],out_size[1],3))*0).astype(np.uint8)
         batch_y = (np.ones((tot_data,out_size[0],out_size[1],3))*0).astype(np.uint8)
         i_output = 0
-        n_critic = get_grid_rot_square_size(output_size=out_size[0],phi=45)
         for i_batch in range(0,batch_size):
             #En funcion de h o w si estos son mas chicos que n_critic resampleo la imagen
             #el n critico ocurre para un tamaño de 250x250
-            (h,w) = (n_critic,n_critic)
             
             #esferizo la imagen y aumnento la cantidad de muestras de mi dataset a partir de una muestra
             tensor_sq,angles,origins= augmented_data(fim.chf_to_chl(batch_x[i_batch]),
@@ -202,6 +201,8 @@ def augmented_generator(batches,augmented_factor,out_size=(250,250)):
 
 train_datagen = fg.ImageDataGenerator(data_format='channels_first')
 i = 0
+
+#esto hay que reemplazarlo junto con augmented generator
 train_batches = train_datagen.flow_from_directory(DATASET_PATH + '/train',
                                                   target_size=(None,None),
                                                   classes=['50um','20um'], #que busque en el directorio de 20 um
